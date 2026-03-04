@@ -1,6 +1,6 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config({ path: '../.env' }); // 
 
 puppeteer.use(StealthPlugin());
 
@@ -13,37 +13,44 @@ async function run() {
 
     try {
         const page = await browser.newPage();
-        const busca = `${process.env.NICHO_ATUAL} em ${process.env.BAIRRO_ATUAL}, ${process.env.CIDADE_ATUAL}`;
         
-        console.log(`🔎 Buscando: ${busca}`);
+        // Carrega variáveis do .env
+        const nicho = process.env.NICHO_ATUAL;
+        const cidade = process.env.CIDADE_ATUAL;
+        const bairro = process.env.BAIRRO_ATUAL;
+        
+        const busca = `${nicho} em ${bairro}, ${cidade}`;
+        console.log(`🔎 Iniciando busca: ${busca}`);
+
+        // URL corrigida
         await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(busca)}`, { 
             waitUntil: 'networkidle2' 
         });
 
         // --- 1. AGUARDAR O FEED APARECER ---
-        console.log("⏳ Aguardando a lista de resultados carregar...");
         const feedSelector = 'div[role="feed"]';
         await page.waitForSelector(feedSelector, { timeout: 30000 });
-
         console.log("✅ Lista encontrada! Iniciando Scroll...");
 
-        // --- 2. FUNÇÃO DE SCROLL ---
+        // --- 2. FUNÇÃO DE SCROLL AUTOMÁTICO ---
         await page.evaluate(async (sel) => {
             const feed = document.querySelector(sel);
-            let totalLeads = 0;
+            let lastHeight = 0;
             
-            while (totalLeads < 50) {
-                feed.scrollBy(0, 500);
+            while (true) {
+                feed.scrollBy(0, 1000);
                 await new Promise(r => setTimeout(r, 2000));
                 
-                totalLeads = document.querySelectorAll('.Nv2Y8').length;
-                if (document.body.innerText.includes("fim da lista")) break;
+                if (feed.scrollHeight === lastHeight) break;
+                lastHeight = feed.scrollHeight;
+                
+                if (document.querySelectorAll('.Nv2Y8').length >= 50) break;
             }
         }, feedSelector);
 
-        console.log("🏁 Scroll finalizado. Iniciando extração...");
+        console.log("🏁 Scroll finalizado. Extraindo dados filtrados...");
 
-        // --- 3. EXTRAÇÃO DE DADOS (DENTRO DO TRY) ---
+        // --- 3. EXTRAÇÃO DE DADOS ---
         const leads = await page.evaluate(() => {
             const items = Array.from(document.querySelectorAll('.Nv2Y8'));
             
@@ -52,7 +59,7 @@ async function run() {
                 const nome = linkElement?.ariaLabel;
                 const notaStr = item.querySelector('.MW4T7d')?.innerText;
                 
-                // Verifica presença de Website
+                // Verifica presença de site
                 const temSite = !!item.querySelector('a[aria-label*="Website"], a[aria-label*="Site"]');
                 
                 return {
@@ -60,16 +67,16 @@ async function run() {
                     nota: parseFloat(notaStr?.replace(',', '.') || "0"),
                     semSite: !temSite
                 };
-            }).filter(lead => lead.semSite && lead.nota < 4.0 && lead.nota > 0); 
+            }).filter(lead => lead.semSite && lead.nota < 4.0 && lead.nota > 0);
         });
 
-        console.log(`🎯 Encontrados ${leads.length} leads potenciais (sem site e nota < 4.0):`);
+        console.log(`🎯 Sucesso! Encontrados ${leads.length} leads potenciais:`);
         console.table(leads);
 
     } catch (error) {
-        console.error("❌ Ocorreu um erro:", error.message);
+        console.error("❌ Erro na execução:", error.message);
     }
-    // browser.close(); // Mantenha comentado para validar visualmente primeiro
+    // O navegador permanece aberto para inspeção
 }
 
 run();
