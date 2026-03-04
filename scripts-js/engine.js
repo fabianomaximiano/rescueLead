@@ -20,37 +20,56 @@ async function run() {
             waitUntil: 'networkidle2' 
         });
 
-        // --- AGUARDAR O FEED APARECER ---
+        // --- 1. AGUARDAR O FEED APARECER ---
         console.log("⏳ Aguardando a lista de resultados carregar...");
         const feedSelector = 'div[role="feed"]';
-        await page.waitForSelector(feedSelector, { timeout: 30000 }); // Espera até 30 seg
+        await page.waitForSelector(feedSelector, { timeout: 30000 });
 
         console.log("✅ Lista encontrada! Iniciando Scroll...");
 
-        // --- FUNÇÃO DE SCROLL MELHORADA ---
+        // --- 2. FUNÇÃO DE SCROLL ---
         await page.evaluate(async (sel) => {
             const feed = document.querySelector(sel);
             let totalLeads = 0;
             
             while (totalLeads < 50) {
-                feed.scrollBy(0, 500); // Rola 500 pixels
-                await new Promise(r => setTimeout(r, 2000)); // Espera 2 seg para carregar novos
+                feed.scrollBy(0, 500);
+                await new Promise(r => setTimeout(r, 2000));
                 
                 totalLeads = document.querySelectorAll('.Nv2Y8').length;
-                console.log(`Carregados: ${totalLeads}`);
-                
-                // Se encontrar o texto "Você chegou ao fim da lista", para.
                 if (document.body.innerText.includes("fim da lista")) break;
             }
         }, feedSelector);
 
-        console.log("🏁 Scroll finalizado com sucesso!");
-        
-    } catch (error) {
-        console.error("❌ Ocorreu um erro inesperado:", error.message);
-    }
+        console.log("🏁 Scroll finalizado. Iniciando extração...");
 
-    // REMOVI o browser.close() para você ver o resultado final parado na tela.
+        // --- 3. EXTRAÇÃO DE DADOS (DENTRO DO TRY) ---
+        const leads = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('.Nv2Y8'));
+            
+            return items.map(item => {
+                const linkElement = item.querySelector('.hfpxzc');
+                const nome = linkElement?.ariaLabel;
+                const notaStr = item.querySelector('.MW4T7d')?.innerText;
+                
+                // Verifica presença de Website
+                const temSite = !!item.querySelector('a[aria-label*="Website"], a[aria-label*="Site"]');
+                
+                return {
+                    nome: nome || "N/A",
+                    nota: parseFloat(notaStr?.replace(',', '.') || "0"),
+                    semSite: !temSite
+                };
+            }).filter(lead => lead.semSite && lead.nota < 4.0 && lead.nota > 0); 
+        });
+
+        console.log(`🎯 Encontrados ${leads.length} leads potenciais (sem site e nota < 4.0):`);
+        console.table(leads);
+
+    } catch (error) {
+        console.error("❌ Ocorreu um erro:", error.message);
+    }
+    // browser.close(); // Mantenha comentado para validar visualmente primeiro
 }
 
 run();
