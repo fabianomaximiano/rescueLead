@@ -1,0 +1,15 @@
+# Dependências
+node_modules/
+vendor/
+
+# Banco de Dados e Dados Sensíveis
+database/rescue_lead.db
+.env
+
+# Saídas e Logs
+output/*.xlsx
+logs/*.log
+
+# Arquivos de Sistema/IDE
+.DS_Store
+.vscode/
