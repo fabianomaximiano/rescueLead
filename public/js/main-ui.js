@@ -1,45 +1,27 @@
-// public/js/main-ui.js
-document.getElementById('configForm').addEventListener('submit', async (e) => {
+document.getElementById('formCaptura').addEventListener('submit', async (e) => {
     e.preventDefault();
     
-    const btn = document.getElementById('btnSubmit');
-    const statusDiv = document.getElementById('statusMessage');
-    const formData = new FormData(e.target);
-
-    // Estado de carregamento
+    const btn = document.querySelector('button[type="submit"]');
     btn.disabled = true;
-    btn.classList.add('loading');
-    btn.innerText = "⏳ Gravando Configurações...";
-    
-    statusDiv.classList.remove('d-none', 'alert-success', 'alert-danger');
-    statusDiv.classList.add('alert-info');
-    statusDiv.innerText = "Comunicando com o servidor Docker...";
+    btn.innerText = "Buscando no Google Maps...";
 
+    const formData = new FormData(e.target);
+    
     try {
-        const response = await fetch('../scripts-php/config_handler.php', {
+        const response = await fetch('../scripts-php/run_bot.php', {
             method: 'POST',
             body: formData
         });
-
-        if (!response.ok) throw new Error('Falha no servidor');
-
-        const result = await response.json();
-
-        if (result.status === 'success') {
-            statusDiv.className = "card-footer text-center alert-success text-success";
-            statusDiv.innerText = "✅ Sucesso! O arquivo .env foi atualizado e o robô reiniciado.";
-            e.target.reset();
-        } else {
-            throw new Error(result.message || 'Erro desconhecido');
-        }
-
-    } catch (error) {
-        statusDiv.className = "card-footer text-center alert-danger text-danger";
-        statusDiv.innerText = "❌ Erro: Não foi possível iniciar a captura.";
-        console.error(error);
-    } finally {
+        
+        const data = await response.json();
+        
+        // Armazena os dados temporariamente e redireciona
+        localStorage.setItem('temp_leads', JSON.stringify(data));
+        window.location.href = 'leads.php';
+        
+    } catch (err) {
+        alert("Erro ao executar robô: " + err.message);
         btn.disabled = false;
-        btn.classList.remove('loading');
         btn.innerText = "Iniciar Captura";
     }
 });

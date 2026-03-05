@@ -1,59 +1,66 @@
 document.addEventListener('DOMContentLoaded', () => {
-    loadLeads();
+    // Simula o carregamento dos dados que o robô cuspiu (em um cenário real, viria via fetch)
+    renderPreview();
 
-    // Lógica para selecionar todos
-    document.getElementById('selectAll').addEventListener('change', (e) => {
-        document.querySelectorAll('.lead-checkbox').forEach(cb => cb.checked = e.target.checked);
+    document.getElementById('checkAll').addEventListener('change', (e) => {
+        document.querySelectorAll('.lead-check').forEach(c => c.checked = e.target.checked);
     });
 
-    // Lógica de Exportação
-    document.getElementById('btnExport').addEventListener('click', exportToExcel);
+    document.getElementById('btnSalvarExportar').addEventListener('click', salvarSelecionados);
 });
 
-async function loadLeads() {
-    const tbody = document.getElementById('leadsTableBody');
-    try {
-        const response = await fetch('../scripts-php/get_leads.php');
-        const leads = await response.json();
+let dadosTemporarios = []; // Armazena o que o robô achou antes de salvar
 
-        if (!leads.length) {
-            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4">Nenhum lead encontrado.</td></tr>';
+async function renderPreview() {
+    const tbody = document.getElementById('previewBody');
+    try {
+        // Aqui chamamos o script PHP que executa o robô e traz o JSON
+        const response = await fetch('../scripts-php/run_bot.php');
+        dadosTemporarios = await response.json();
+
+        if (dadosTemporarios.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5">Nenhum resultado encontrado para este filtro.</td></tr>';
             return;
         }
 
-        tbody.innerHTML = leads.map(lead => `
+        tbody.innerHTML = dadosTemporarios.map((item, index) => `
             <tr>
-                <td><input type="checkbox" class="lead-checkbox" value="${lead.id}"></td>
-                <td><strong>${lead.nome}</strong></td>
-                <td><span class="badge badge-warning text-dark">${lead.nota} ⭐</span></td>
-                <td class="text-center text-muted small">#${lead.id}</td>
+                <td><input type="checkbox" class="lead-check" value="${index}"></td>
+                <td><strong>${item.nome_empresa}</strong></td>
+                <td><span class="badge badge-warning">${item.nota} ⭐</span></td>
+                <td>${item.telefone || 'N/A'}</td>
+                <td><small>${item.cidade} / ${item.bairro}</small></td>
             </tr>
         `).join('');
     } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">Erro ao carregar banco de dados.</td></tr>`;
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-5">Erro ao comunicar com o robô.</td></tr>';
     }
 }
 
-function exportToExcel() {
-    const selectedIds = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(cb => cb.value);
+async function salvarSelecionados() {
+    const selecionados = Array.from(document.querySelectorAll('.lead-check:checked'))
+        .map(cb => dadosTemporarios[cb.value]);
 
-    if (selectedIds.length === 0) {
-        alert("Por favor, selecione pelo menos um lead para exportar.");
+    if (selecionados.length === 0) {
+        alert("Selecione ao menos um item para salvar!");
         return;
     }
 
-    // Criamos um formulário oculto para enviar os IDs via POST e baixar o arquivo
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '../scripts-php/excel-gen.php';
+    // Envia apenas os selecionados para gravar no banco e gerar o Excel
+    const response = await fetch('../scripts-php/save_and_export.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(selecionados)
+    });
 
-    const input = document.createElement('input');
-    input.type = 'hidden';
-    input.name = 'ids';
-    input.value = JSON.stringify(selectedIds);
-
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+    if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'leads_qualificados.csv';
+        document.body.appendChild(a);
+        a.click();
+        alert("✅ Dados salvos no banco e Excel gerado!");
+    }
 }

@@ -1,31 +1,25 @@
 <?php
-// scripts-php/excel-gen.php
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ids'])) {
-    $ids = JSON_decode($_POST['ids']);
-    
+    $ids = json_decode($_POST['ids']);
     $dbPath = dirname(__DIR__) . '/database/rescue_lead.db';
     $db = new PDO("sqlite:$dbPath");
 
-    // Prepara a consulta para os IDs selecionados
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $stmt = $db->prepare("SELECT nome, nota FROM leads WHERE id IN ($placeholders)");
+    // Busca os dados completos conforme o seu schema
+    $stmt = $db->prepare("SELECT nome_empresa, telefone, site, nota, cidade FROM leads WHERE id IN ($placeholders)");
     $stmt->execute($ids);
     $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Configura headers para download de CSV (Excel reconhece)
     header('Content-Type: text/csv; charset=utf-8');
-    header('Content-Disposition: attachment; filename=leads_exportados.csv');
+    header('Content-Disposition: attachment; filename=leads_completos.csv');
 
     $output = fopen('php://output', 'w');
-    // Adiciona o BOM para o Excel identificar caracteres especiais (acentos)
-    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // Suporte a acentos
     
-    // Cabeçalho do Excel
-    fputcsv($output, ['Nome do Estabelecimento', 'Nota Avaliação']);
+    // Cabeçalho atualizado
+    fputcsv($output, ['Empresa', 'Telefone', 'Website', 'Avaliação', 'Cidade']);
 
-    foreach ($results as $row) {
-        fputcsv($output, $row);
-    }
+    foreach ($results as $row) { fputcsv($output, $row); }
     fclose($output);
     exit;
 }
