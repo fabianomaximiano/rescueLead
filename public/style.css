@@ -1,0 +1,31 @@
+/* public/style.css */
+body {
+    transition: background-color 0.3s ease;
+}
+
+.card {
+    border: none;
+    border-radius: 12px;
+}
+
+.card-header {
+    border-radius: 12px 12px 0 0 !important;
+}
+
+#statusMessage {
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
+/* Animação simples de pulso para quando estiver processando */
+.loading {
+    opacity: 0.7;
+    cursor: not-allowed;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(0.99); }
+    100% { transform: scale(1); }
+}
