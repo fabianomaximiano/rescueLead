@@ -1,20 +1,80 @@
 /* public/style.css */
-body { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
+body {
+    background-color: #f4f7f6;
+    font-family: 'Segoe UI', sans-serif;
+}
 
-/* Esconde os elementos de status e erro no carregamento inicial */
-#statusMensagem, #erroMensagem {
+#erroMensagem {
     display: none;
 }
 
-/* Spinner de carregamento azul */
+#btnIniciar:disabled {
+    filter: grayscale(0.15);
+    cursor: not-allowed;
+    opacity: 0.85;
+}
+
+.card {
+    border-radius: 14px;
+    border: none;
+}
+
+.painel-captura {
+    overflow: hidden;
+}
+
+/* overlay começa totalmente escondido */
+#loadingOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.64);
+    display: none; /* motivo: impedir exibição antes do submit */
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 20px;
+}
+
+/* overlay só aparece quando ativo */
+#loadingOverlay.ativo {
+    display: flex; /* motivo: centralizar box apenas quando loading estiver ativo */
+}
+
+.loading-box {
+    width: 100%;
+    max-width: 460px;
+    background: linear-gradient(135deg, #0d6efd, #0056d2);
+    color: #fff;
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    text-align: center; /* motivo: centralizar todo o conteúdo do loading */
+    padding: 34px 28px;
+    animation: subirBox 0.25s ease forwards;
+}
+
 .loader-azul {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #f3f3f3;
-    border-top: 5px solid #007bff;
+    width: 68px;
+    height: 68px;
+    border: 6px solid rgba(255, 255, 255, 0.35);
+    border-top: 6px solid #ffffff;
     border-radius: 50%;
-    margin: 20px auto;
-    animation: spin 1s linear infinite;
+    margin: 0 auto 22px auto;
+    animation: spin 0.9s linear infinite;
+}
+
+#loadingTitulo {
+    font-size: 1.45rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    text-align: center; /* motivo: garantir centralização do título */
+}
+
+#loadingTexto {
+    margin: 0;
+    font-size: 1rem;
+    opacity: 0.95;
+    line-height: 1.55;
+    text-align: center; /* motivo: garantir centralização do texto */
 }
 
 @keyframes spin {
@@ -22,10 +82,13 @@ body { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
     100% { transform: rotate(360deg); }
 }
 
-#btnIniciar:disabled {
-    filter: grayscale(1);
-    cursor: not-allowed;
-    opacity: 0.7;
+@keyframes subirBox {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
-
-.card { border-radius: 12px; border: none; }

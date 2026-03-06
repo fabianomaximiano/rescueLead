@@ -1,11 +1,75 @@
-// scripts-js/engine.js
-
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const fs = require('fs');
+const path = require('path');
 
 puppeteer.use(StealthPlugin());
 
+const MAX_LEADS = 50;
+const MAX_SCROLLS = 12;
+const controlePath = path.join(__dirname, '../controle_diario.json');
+
+function log(mensagem) {
+    process.stderr.write(`[engine] ${mensagem}\n`); // motivo: facilitar diagnóstico sem misturar com o JSON final
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function randomDelay(min = 900, max = 1800) {
+    const tempo = Math.floor(Math.random() * (max - min + 1)) + min;
+    return delay(tempo); // motivo: reduzir padrão robótico no Maps
+}
+
+function verificarLimiteDiario() {
+    const hoje = new Date().toISOString().slice(0, 10);
+
+    if (!fs.existsSync(controlePath)) {
+        fs.writeFileSync(controlePath, JSON.stringify({ data: hoje, total: 0 }, null, 2));
+    }
+
+    const dados = JSON.parse(fs.readFileSync(controlePath, 'utf8'));
+
+    if (dados.data !== hoje) {
+        const resetado = { data: hoje, total: 0 };
+        fs.writeFileSync(controlePath, JSON.stringify(resetado, null, 2));
+        return { permitido: true, total: 0 };
+    }
+
+    if (dados.total >= MAX_LEADS) {
+        return { permitido: false, total: dados.total };
+    }
+
+    return { permitido: true, total: dados.total };
+}
+
+function registrarCaptura(qtd) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dados = fs.existsSync(controlePath)
+        ? JSON.parse(fs.readFileSync(controlePath, 'utf8'))
+        : { data: hoje, total: 0 };
+
+    if (dados.data !== hoje) {
+        dados.data = hoje;
+        dados.total = 0;
+    }
+
+    dados.total += qtd;
+    fs.writeFileSync(controlePath, JSON.stringify(dados, null, 2));
+}
+
 async function iniciarCaptura() {
+    const limite = verificarLimiteDiario();
+
+    if (!limite.permitido) {
+        process.stdout.write(JSON.stringify({
+            error: 'Limite diário atingido',
+            limite: MAX_LEADS
+        }));
+        return;
+    }
+
     let browser;
 
     try {
@@ -24,108 +88,90 @@ async function iniciarCaptura() {
         const termoBusca = [nicho, bairro, cidade].filter(Boolean).join(' ');
         const urlBusca = `https://www.google.com/maps/search/${encodeURIComponent(termoBusca)}`;
 
+        log(`Iniciando navegador para busca: ${termoBusca}`);
+
         browser = await puppeteer.launch({
             headless: 'new',
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium', // fallback caso a ENV não carregue
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // melhora estabilidade do Chromium no Docker
-                '--disable-gpu' // reduz falhas gráficas em ambiente headless
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
             ]
         });
 
         const page = await browser.newPage();
 
         await page.setViewport({ width: 1366, height: 768 });
-
         await page.setUserAgent(
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131 Safari/537.36'
         );
 
+        log('Abrindo Google Maps');
         await page.goto(urlBusca, {
             waitUntil: 'domcontentloaded',
             timeout: 60000
         });
 
-        await page.waitForSelector('div[role="feed"]', { timeout: 25000 }); // mantém espera da lista lateral do Maps
-        await new Promise(resolve => setTimeout(resolve, 5000)); // pequena pausa para renderização inicial
+        log('Aguardando lista lateral');
+        await page.waitForSelector('div[role="feed"]', { timeout: 25000 });
+        await delay(4000);
 
         const feedSelector = 'div[role="feed"]';
 
-        // scroll adicionado para forçar o Maps a renderizar melhor os cards antes da leitura
-        await page.evaluate(async (selector) => {
+        log('Executando scroll automático');
+        for (let i = 0; i < MAX_SCROLLS; i++) {
+            await page.evaluate((selector) => {
+                const feed = document.querySelector(selector);
+                if (feed) {
+                    feed.scrollBy(0, 1200);
+                }
+            }, feedSelector);
+
+            await randomDelay(1000, 1800);
+        }
+
+        log('Retornando ao topo da lista');
+        await page.evaluate((selector) => {
             const feed = document.querySelector(selector);
-            if (!feed) return;
-
-            for (let i = 0; i < 6; i++) {
-                feed.scrollTop += 1200;
-                await new Promise(resolve => setTimeout(resolve, 1200));
+            if (feed) {
+                feed.scrollTop = 0;
             }
-
-            feed.scrollTop = 0;
-            await new Promise(resolve => setTimeout(resolve, 1500));
         }, feedSelector);
 
-        // espera flexível: o Maps alterna entre Nv2PK e role=article dependendo da renderização
-        await page.waitForFunction(() => {
-            return document.querySelectorAll('div.Nv2PK, div[role="article"], a.hfpxzc').length > 0;
-        }, { timeout: 20000 });
+        await delay(1500);
 
+        log('Lendo cards do Maps');
         const empresas = await page.evaluate(() => {
             const resultados = [];
             const vistos = new Set();
 
-            // seletor ampliado porque o DOM do Maps varia bastante
             const cards = Array.from(document.querySelectorAll('div.Nv2PK, div[role="article"]'));
 
-            const extrairTexto = (el) => {
-                return el?.innerText?.trim() || null;
-            };
-
-            const extrairNota = (card) => {
-                const notaDireta = extrairTexto(card.querySelector('.MW4etd'));
-                if (notaDireta) return notaDireta;
-
-                const roleImg = card.querySelector('span[role="img"]')?.getAttribute('aria-label') || '';
-                const match = roleImg.match(/(\d+[.,]?\d*)/);
-                return match ? match[1].replace(',', '.') : null;
-            };
+            const texto = (el) => el?.innerText?.trim() || null;
 
             const extrairNome = (card) => {
                 return (
                     card.querySelector('a.hfpxzc')?.getAttribute('aria-label') ||
-                    extrairTexto(card.querySelector('.qBF1Pd')) ||
-                    extrairTexto(card.querySelector('.fontHeadlineSmall')) ||
-                    extrairTexto(card.querySelector('[aria-label][href*="/maps/place/"]')) ||
+                    texto(card.querySelector('.qBF1Pd')) ||
+                    texto(card.querySelector('.fontHeadlineSmall')) ||
                     null
                 );
             };
 
-            const extrairBairro = (card) => {
-                const texto = extrairTexto(card);
-                if (!texto) return null;
+            const extrairNota = (card) => {
+                const direta = texto(card.querySelector('.MW4etd'));
+                if (direta) return direta.replace(',', '.');
 
-                const linhas = texto
-                    .split('\n')
-                    .map(l => l.trim())
-                    .filter(Boolean);
-
-                // heurística: tenta encontrar linha com bairro/região sem pegar nome/nota
-                const candidata = linhas.find(l =>
-                    !l.includes('★') &&
-                    !/^\d+[.,]?\d*$/.test(l) &&
-                    l.length > 2 &&
-                    l.length < 80
-                );
-
-                return candidata || null;
+                const aria = card.querySelector('span[role="img"]')?.getAttribute('aria-label') || '';
+                const match = aria.match(/(\d+[.,]?\d*)/);
+                return match ? match[1].replace(',', '.') : null;
             };
 
             cards.forEach(card => {
                 const nome = extrairNome(card);
                 const nota = extrairNota(card);
-                const bairro = extrairBairro(card);
 
                 if (nome && !vistos.has(nome)) {
                     vistos.add(nome);
@@ -133,54 +179,39 @@ async function iniciarCaptura() {
                     resultados.push({
                         nome_empresa: nome,
                         nota: nota,
-                        telefone: null, // telefone ficará para a próxima etapa, quando abrirmos cada empresa
-                        bairro: bairro
+                        telefone: null, // motivo: etapa de detalhe foi removida para estabilizar o motor
+                        endereco: null, // motivo: etapa de detalhe foi removida para estabilizar o motor
+                        bairro: null,   // motivo: heurística anterior estava inconsistente
+                        site: null      // motivo: etapa de detalhe foi removida para estabilizar o motor
                     });
                 }
             });
 
-            // fallback extra: se cards não vierem completos, tenta capturar nomes direto dos links
-            if (!resultados.length) {
-                const links = Array.from(document.querySelectorAll('a.hfpxzc'));
-
-                links.forEach(link => {
-                    const nome = link.getAttribute('aria-label') || link.innerText?.trim() || null;
-
-                    if (nome && !vistos.has(nome)) {
-                        vistos.add(nome);
-
-                        resultados.push({
-                            nome_empresa: nome,
-                            nota: null,
-                            telefone: null,
-                            bairro: null
-                        });
-                    }
-                });
-            }
-
             return resultados;
         });
 
-        if (!empresas.length) {
-            process.stdout.write(JSON.stringify([{
-                nome_empresa: 'Nenhum resultado capturado',
-                nota: null,
-                telefone: null,
-                bairro: null
-            }]));
+        const disponiveisHoje = Math.max(0, MAX_LEADS - limite.total);
+        const capturados = empresas.slice(0, disponiveisHoje);
+
+        log(`Empresas capturadas: ${capturados.length}`);
+
+        if (!capturados.length) {
+            process.stdout.write(JSON.stringify([]));
             return;
         }
 
-        process.stdout.write(JSON.stringify(empresas));
+        registrarCaptura(capturados.length);
+        process.stdout.write(JSON.stringify(capturados));
     } catch (error) {
-        process.stderr.write(JSON.stringify({
-            error: error.message,
-            stack: error.stack
-        }));
+        process.stdout.write(JSON.stringify({
+            error: 'Falha no motor Node',
+            debug: error.message
+        })); // motivo: devolver JSON válido para o frontend mesmo em erro
+        log(`Erro: ${error.message}`);
     } finally {
         if (browser) {
             await browser.close();
+            log('Navegador fechado');
         }
     }
 }
