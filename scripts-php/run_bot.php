@@ -1,33 +1,52 @@
 <?php
-// scripts-php/run_bot.php
+header('Content-Type: application/json; charset=utf-8');
 
-// Define que o retorno será um JSON para o JavaScript ler
-header('Content-Type: application/json');
+// Recebe dados do formulário
+$nicho = escapeshellarg($_POST['nicho'] ?? '');
+$cidade = escapeshellarg($_POST['cidade'] ?? '');
+$bairro = escapeshellarg($_POST['bairro'] ?? '');
 
-// Captura os dados enviados pelo formulário do index.php
-$nicho = isset($_POST['nicho']) ? $_POST['nicho'] : '';
-$cidade = isset($_POST['cidade']) ? $_POST['cidade'] : '';
-$bairro = isset($_POST['bairro']) ? $_POST['bairro'] : '';
+// Caminho absoluto para o engine.js
+$script = realpath(__DIR__ . '/../scripts-js/engine.js');
 
-// Protege as variáveis para uso no terminal (Segurança)
-$argNicho = escapeshellarg($nicho);
-$argCidade = escapeshellarg($cidade);
-$argBairro = escapeshellarg($bairro);
+// Validação adicionada para evitar erro silencioso se o arquivo não existir
+if (!$script) {
+    http_response_code(500);
+    echo json_encode([
+        "error" => "engine.js não encontrado"
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
-/**
- * EXECUÇÃO DO ROBÔ:
- * O PHP chama o Node.js para rodar o engine.js.
- * Passamos os parâmetros de busca diretamente para o robô.
- */
-$comando = "node ../scripts-js/engine.js $argNicho $argCidade $argBairro 2>&1";
+// Monta o comando para executar o Node
+$comando = "node " . escapeshellarg($script) . " $nicho $cidade $bairro 2>&1"; // escapeshellarg no caminho do script para evitar quebra por espaço no path
+
 $output = shell_exec($comando);
 
-// Verifica se o robô retornou algo
-if ($output) {
-    // Retorna o que o robô imprimiu (o JSON com os leads encontrados)
-    echo $output;
-} else {
-    // Caso ocorra um erro ou o robô não encontre nada
+// Normaliza saída
+$output = trim((string)$output);
+
+// Se não houve retorno nenhum, devolve JSON válido
+if ($output === '') {
     http_response_code(500);
-    echo json_encode(["error" => "O robô não retornou dados ou houve falha na execução."]);
+    echo json_encode([
+        "error" => "Falha no motor Node",
+        "debug" => "Nenhuma saída retornada pelo engine.js"
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
 }
+
+// Tenta decodificar o retorno para garantir que é JSON válido
+$data = json_decode($output, true);
+
+// Validação adicionada para impedir que HTML/warnings do PHP ou Node quebrem o frontend
+if (json_last_error() === JSON_ERROR_NONE) {
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+http_response_code(500);
+echo json_encode([
+    "error" => "Falha no motor Node",
+    "debug" => $output
+], JSON_UNESCAPED_UNICODE);

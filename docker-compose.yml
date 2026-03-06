@@ -1,28 +1,16 @@
+version: '3.8'
+
 services:
-  php-server:
-    image: php:8.2-apache
-    container_name: php-server
+  rescuelead-app:
+    container_name: rescuelead-container
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8080:80"
     volumes:
       - .:/var/www/html
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - rescuelead-network
-
-  scraping-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: scraping-bot
-    restart: no
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-      # Esta linha cria um volume virtual para o node_modules interno do Docker (Linux)
-      # e impede que ele tente ler pastas do Windows, resolvendo o erro ELF Header.
-      - /app/node_modules
+      - /var/www/html/node_modules # mantém node_modules do container e evita conflito com node_modules do Windows
     networks:
       - rescuelead-network
 

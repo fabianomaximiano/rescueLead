@@ -1,27 +1,58 @@
-document.getElementById('formCaptura').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const btn = document.querySelector('button[type="submit"]');
-    btn.disabled = true;
-    btn.innerText = "Buscando no Google Maps...";
+document.addEventListener('DOMContentLoaded', function () {
 
-    const formData = new FormData(e.target);
-    
-    try {
-        const response = await fetch('../scripts-php/run_bot.php', {
-            method: 'POST',
-            body: formData
-        });
-        
-        const data = await response.json();
-        
-        // Armazena os dados temporariamente e redireciona
-        localStorage.setItem('temp_leads', JSON.stringify(data));
-        window.location.href = 'leads.php';
-        
-    } catch (err) {
-        alert("Erro ao executar robô: " + err.message);
-        btn.disabled = false;
-        btn.innerText = "Iniciar Captura";
-    }
+    const form = document.getElementById('formCaptura');
+    const btn = document.getElementById('btnIniciar');
+
+    form.addEventListener('submit', async function (e) {
+
+        e.preventDefault();
+
+        btn.disabled = true;
+        btn.innerText = 'Capturando...';
+
+        const formData = new FormData(form);
+
+        try {
+
+            const response = await fetch('../scripts-php/run_bot.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            // alteração: primeiro pegamos texto para evitar quebra se vier HTML
+            const text = await response.text();
+
+            let data;
+
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+
+                // alteração: mostra erro real retornado pelo servidor
+                throw new Error('Resposta inválida do servidor:\n\n' + text);
+            }
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            // salva dados no localStorage para usar na tela de leads
+            localStorage.setItem('leads', JSON.stringify(data));
+
+            // redireciona para página de resultados
+            window.location.href = 'leads.php';
+
+        } catch (error) {
+
+            alert(error.message);
+
+        } finally {
+
+            btn.disabled = false;
+            btn.innerText = 'Iniciar Captura';
+
+        }
+
+    });
+
 });

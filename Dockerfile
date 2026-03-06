@@ -1,45 +1,61 @@
-# Usa uma imagem oficial do Node.js estável
-FROM node:20-slim
+FROM php:8.2-apache
 
-# Instala as dependências necessárias para rodar o Chromium no Linux
-# Isso é essencial para o Puppeteer não falhar ao iniciar
+# Instala dependências do sistema + Chromium
 RUN apt-get update && apt-get install -y \
+    curl \
     wget \
     gnupg \
     ca-certificates \
-    procps \
-    libgconf-2-4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libgtk-3-0 \
-    libgbm-dev \
-    libnss3 \
-    libxss1 \
-    libasound2 \
+    unzip \
     fonts-liberation \
-    libappindicator3-1 \
-    xdg-utils \
-    --no-install-recommends \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgdk-pixbuf-2.0-0 \
+    libgtk-3-0 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxrandr2 \
+    libxrender1 \
+    libxss1 \
+    libxtst6 \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
-# Define o diretório de trabalho dentro do container
-WORKDIR /app
+# Instala Node 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copia apenas os arquivos de dependências primeiro para aproveitar o cache do Docker
+WORKDIR /var/www/html
+
 COPY package*.json ./
+RUN npm install
 
-# Instala as dependências (incluindo puppeteer-extra e sqlite3)
-# O comando 'rebuild' garante que o sqlite3 seja compilado para Linux, 
-# corrigindo o erro de "invalid ELF header"
-RUN npm install && npm rebuild sqlite3
-
-# Copia o restante dos arquivos do projeto
 COPY . .
 
-# Cria a pasta de banco de dados e garante permissão de escrita
-RUN mkdir -p /app/database && chmod -R 777 /app/database
+RUN mkdir -p /var/www/html/database \
+    && chown -R www-data:www-data /var/www/html \
+    && chmod -R 775 /var/www/html/database \
+    && a2enmod rewrite
 
-# Comando para rodar o robô
-# Aponta para o caminho correto baseado na sua estrutura: scripts-js/engine.js
-CMD ["node", "scripts-js/engine.js"]
+# Define caminho do Chromium para o Puppeteer
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+EXPOSE 80

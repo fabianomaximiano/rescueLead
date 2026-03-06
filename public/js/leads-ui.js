@@ -1,66 +1,176 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // Simula o carregamento dos dados que o robô cuspiu (em um cenário real, viria via fetch)
-    renderPreview();
+// scripts-js/engine.js
 
-    document.getElementById('checkAll').addEventListener('change', (e) => {
-        document.querySelectorAll('.lead-check').forEach(c => c.checked = e.target.checked);
-    });
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const fs = require('fs'); // NOVO: usado para controle do limite diário
+const path = require('path');
 
-    document.getElementById('btnSalvarExportar').addEventListener('click', salvarSelecionados);
-});
+puppeteer.use(StealthPlugin());
 
-let dadosTemporarios = []; // Armazena o que o robô achou antes de salvar
+const LIMITE_DIARIO = 50; // NOVO: limite de segurança contra bloqueio
 
-async function renderPreview() {
-    const tbody = document.getElementById('previewBody');
-    try {
-        // Aqui chamamos o script PHP que executa o robô e traz o JSON
-        const response = await fetch('../scripts-php/run_bot.php');
-        dadosTemporarios = await response.json();
+const controlePath = path.join(__dirname, '../controle_diario.json'); // NOVO: arquivo simples de controle
 
-        if (dadosTemporarios.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center py-5">Nenhum resultado encontrado para este filtro.</td></tr>';
-            return;
-        }
+function verificarLimiteDiario() {
+    const hoje = new Date().toISOString().slice(0, 10);
 
-        tbody.innerHTML = dadosTemporarios.map((item, index) => `
-            <tr>
-                <td><input type="checkbox" class="lead-check" value="${index}"></td>
-                <td><strong>${item.nome_empresa}</strong></td>
-                <td><span class="badge badge-warning">${item.nota} ⭐</span></td>
-                <td>${item.telefone || 'N/A'}</td>
-                <td><small>${item.cidade} / ${item.bairro}</small></td>
-            </tr>
-        `).join('');
-    } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger py-5">Erro ao comunicar com o robô.</td></tr>';
+    if (!fs.existsSync(controlePath)) {
+        fs.writeFileSync(controlePath, JSON.stringify({ data: hoje, total: 0 }));
     }
+
+    const dados = JSON.parse(fs.readFileSync(controlePath));
+
+    if (dados.data !== hoje) {
+        fs.writeFileSync(controlePath, JSON.stringify({ data: hoje, total: 0 }));
+        return { permitido: true, total: 0 };
+    }
+
+    if (dados.total >= LIMITE_DIARIO) {
+        return { permitido: false, total: dados.total };
+    }
+
+    return { permitido: true, total: dados.total };
 }
 
-async function salvarSelecionados() {
-    const selecionados = Array.from(document.querySelectorAll('.lead-check:checked'))
-        .map(cb => dadosTemporarios[cb.value]);
+function registrarCaptura(qtd) {
+    const dados = JSON.parse(fs.readFileSync(controlePath));
+    dados.total += qtd;
+    fs.writeFileSync(controlePath, JSON.stringify(dados));
+}
 
-    if (selecionados.length === 0) {
-        alert("Selecione ao menos um item para salvar!");
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function iniciarCaptura() {
+
+    const limite = verificarLimiteDiario(); // NOVO: verifica limite
+
+    if (!limite.permitido) {
+        process.stdout.write(JSON.stringify({
+            error: "Limite diário atingido",
+            limite: LIMITE_DIARIO
+        }));
         return;
     }
 
-    // Envia apenas os selecionados para gravar no banco e gerar o Excel
-    const response = await fetch('../scripts-php/save_and_export.php', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selecionados)
-    });
+    let browser;
 
-    if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'leads_qualificados.csv';
-        document.body.appendChild(a);
-        a.click();
-        alert("✅ Dados salvos no banco e Excel gerado!");
+    try {
+
+        const nicho = process.argv[2] || '';
+        const cidade = process.argv[3] || '';
+        const bairro = process.argv[4] || '';
+
+        const termoBusca = [nicho, bairro, cidade].filter(Boolean).join(' ');
+
+        const url = `https://www.google.com/maps/search/${encodeURIComponent(termoBusca)}`;
+
+        browser = await puppeteer.launch({
+            headless: 'new',
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // melhora estabilidade no Docker
+                '--disable-gpu'
+            ]
+        });
+
+        const page = await browser.newPage();
+
+        await page.setViewport({ width: 1366, height: 768 });
+
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+        await page.waitForSelector('div[role="feed"]');
+
+        await delay(4000);
+
+        const feedSelector = 'div[role="feed"]';
+
+        // NOVO: scroll automático para carregar mais empresas
+        await page.evaluate(async (selector) => {
+
+            const feed = document.querySelector(selector);
+
+            if (!feed) return;
+
+            let scrollCount = 0;
+
+            while (scrollCount < 20) { // limite de scrolls para evitar loop infinito
+
+                feed.scrollTop += 1200;
+
+                await new Promise(r => setTimeout(r, 1200));
+
+                scrollCount++;
+
+            }
+
+        }, feedSelector);
+
+        await delay(2000);
+
+        const empresas = await page.evaluate(() => {
+
+            const resultados = [];
+
+            const cards = document.querySelectorAll('div.Nv2PK');
+
+            cards.forEach(card => {
+
+                const nome =
+                    card.querySelector('.qBF1Pd')?.innerText ||
+                    card.querySelector('a.hfpxzc')?.getAttribute('aria-label') ||
+                    null;
+
+                const nota =
+                    card.querySelector('.MW4etd')?.innerText ||
+                    null;
+
+                const texto = card.innerText || '';
+
+                const linhas = texto.split('\n');
+
+                const bairro = linhas.find(l => l.length > 3 && l.length < 80) || null;
+
+                if (nome) {
+                    resultados.push({
+                        nome_empresa: nome,
+                        nota: nota,
+                        telefone: null,
+                        bairro: bairro
+                    });
+                }
+
+            });
+
+            return resultados;
+
+        });
+
+        const capturados = empresas.slice(0, LIMITE_DIARIO - limite.total); // NOVO: respeita limite diário
+
+        registrarCaptura(capturados.length); // NOVO: registra captura no controle diário
+
+        process.stdout.write(JSON.stringify(capturados));
+
+    } catch (error) {
+
+        process.stderr.write(JSON.stringify({
+            error: error.message,
+            stack: error.stack
+        }));
+
+    } finally {
+
+        if (browser) {
+            await browser.close();
+        }
+
     }
+
 }
+
+iniciarCaptura();

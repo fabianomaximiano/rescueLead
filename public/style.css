@@ -1,31 +1,31 @@
 /* public/style.css */
-body {
-    transition: background-color 0.3s ease;
+body { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
+
+/* Esconde os elementos de status e erro no carregamento inicial */
+#statusMensagem, #erroMensagem {
+    display: none;
 }
 
-.card {
-    border: none;
-    border-radius: 12px;
+/* Spinner de carregamento azul */
+.loader-azul {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #007bff;
+    border-radius: 50%;
+    margin: 20px auto;
+    animation: spin 1s linear infinite;
 }
 
-.card-header {
-    border-radius: 12px 12px 0 0 !important;
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
-#statusMessage {
-    transition: all 0.3s ease;
-    font-weight: 600;
-}
-
-/* Animação simples de pulso para quando estiver processando */
-.loading {
-    opacity: 0.7;
+#btnIniciar:disabled {
+    filter: grayscale(1);
     cursor: not-allowed;
-    animation: pulse 1.5s infinite;
+    opacity: 0.7;
 }
 
-@keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(0.99); }
-    100% { transform: scale(1); }
-}
+.card { border-radius: 12px; border: none; }
